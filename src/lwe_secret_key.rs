@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::*;
 use concrete;
-use super::translate_error;
+use super::{translate_error, RLWESecretKey};
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
@@ -41,7 +41,8 @@ impl LWESecretKey {
     /// * a new LWESecretKey
     #[new]
     pub fn new(params: &crate::LWEParams) -> LWESecretKey {
-        concrete::LWESecretKey::new(params)
+        let data = concrete::LWESecretKey::new(&params.data);
+        LWESecretKey{ data }
     }
 
     /// Generate a new secret key from a raw dimension (i.e. without a LWEParams input)
@@ -52,7 +53,8 @@ impl LWESecretKey {
     /// * a new LWESecretKey
     #[staticmethod]
     pub fn new_raw(dimension: usize, std_dev: f64) -> LWESecretKey {
-        concrete::LweSecretKey::new_raw(dimension, std_dev)
+        let data = concrete::LWESecretKey::new_raw(dimension, std_dev);
+        LWESecretKey{ data }
     }
 
     /// Convert an LWE secret key into an RLWE secret key
@@ -64,7 +66,8 @@ impl LWESecretKey {
         &self,
         polynomial_size: usize,
     ) -> PyResult<crate::RLWESecretKey> {
-        translate_error!(self.data.to_rlwe_secret_key(usize))
+        let data = translate_error!(self.data.to_rlwe_secret_key(polynomial_size))?;
+        Ok(RLWESecretKey{ data })
     }
 
     /// Return the variance of the error distribution associated with the secret key

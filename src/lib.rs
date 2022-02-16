@@ -22,12 +22,12 @@ pub mod plaintext;
 pub use plaintext::Plaintext;
 // pub_mod_use!(vector_rlwe);
 // pub_mod_use!(vector_lwe);
-// pub mod lwe_secret_key;
-// pub use lwe_secret_key::LWESecretKey;
-// pub mod rlwe_params;
-// pub use rlwe_params::RLWEParams;
-// pub mod rlwe_secret_key;
-// pub use rlwe_secret_key::RLWESecretKey;
+pub mod lwe_secret_key;
+pub use lwe_secret_key::LWESecretKey;
+pub mod rlwe_params;
+pub use rlwe_params::RLWEParams;
+pub mod rlwe_secret_key;
+pub use rlwe_secret_key::RLWESecretKey;
 
 
 #[macro_export]
@@ -46,7 +46,7 @@ fn pyconcrete(py: Python, m: &PyModule) -> PyResult<()> {
     // m.add_wrapped(wrap_pyfunction!(lwe_params))?;
     lwe_params::register(py, m)?;
     encoder::register(py, m)?;
-    // plaintext::register(py, m)?;
+    plaintext::register(py, m)?;
 
 
     Ok(())

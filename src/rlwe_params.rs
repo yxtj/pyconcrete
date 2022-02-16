@@ -154,7 +154,8 @@ impl RLWEParams {
         dimension: usize,
         log2_std_dev: i32,
     ) -> PyResult<RLWEParams> {
-        translate_error!(concrete::RLWEParams::new(polynomial_size, dimension, log2_std_dev))
+        let data = translate_error!(concrete::RLWEParams::new(polynomial_size, dimension, log2_std_dev))?;
+        Ok(RLWEParams{ data })
     }
     
     #[getter]

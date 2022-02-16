@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::*;
 use concrete;
-use super::translate_error;
+use super::{translate_error, LWESecretKey};
 
 #[pyclass]
 #[derive(Debug, PartialEq)]
@@ -10,12 +10,13 @@ pub struct RLWESecretKey {
     // pub polynomial_size: usize,
     // pub dimension: usize,
     // pub std_dev: f64,
-    pub data: concrete::RLWEParams,
+    pub data: concrete::RLWESecretKey,
 }
 
+#[pymethods]
 impl RLWESecretKey {
     #[getter]
-    pub fn get_polynomial_size(&self) -> usize> {
+    pub fn get_polynomial_size(&self) -> usize {
         self.data.polynomial_size
     }
 
@@ -25,7 +26,7 @@ impl RLWESecretKey {
     }
 
     #[getter]
-    pub fn get_dimension(&self) -> usize> {
+    pub fn get_dimension(&self) -> usize {
         self.data.dimension
     }
 
@@ -51,7 +52,8 @@ impl RLWESecretKey {
     /// * a new RLWESecretKey
     #[new]
     pub fn new(params: &crate::RLWEParams) -> RLWESecretKey {
-        concrete::RLWESecretKey::new(params)
+        let data = concrete::RLWESecretKey::new(&params.data);
+        RLWESecretKey{ data }
     }
 
     /// Generate a new secret key from a raw dimension (i.e. without a RLWEParams input)
@@ -62,20 +64,16 @@ impl RLWESecretKey {
     /// * a new RLWESecretKey
     #[staticmethod]
     pub fn new_raw(polynomial_size: usize, dimension: usize, std_dev: f64) -> RLWESecretKey {
-        concrete::RLWESecretKey::new_raw(polynomial_size, dimension, std_dev)
+        let data = concrete::RLWESecretKey::new_raw(polynomial_size, dimension, std_dev);
+        RLWESecretKey{ data }
     }
 
     /// Convert an RLWE secret key into an LWE secret key
     /// # Output
     /// * an LWE secret key
     pub fn to_lwe_secret_key(&self) -> crate::LWESecretKey {
-        crate::LWESecretKey {
-            data: concrete::LWESecretKey{
-                val: LweSecretKey::binary_from_container(self.val.clone().into_tensor().into_container()),
-                dimension: self.dimension * self.polynomial_size,
-                std_dev: self.std_dev,
-            }
-        }
+        let data = self.data.to_lwe_secret_key();
+        LWESecretKey{ data }
     }
 
     /// Return the variance of the error distribution associated with the secret key
