@@ -1,7 +1,9 @@
 //! lwe ciphertext module
 use pyo3::prelude::*;
 use pyo3::exceptions::*;
+use pyo3::types::{PyFunction};
 use concrete;
+use concrete::{Torus};
 use super::translate_error;
 
 /// Structure containing a single LWE ciphertext.
@@ -21,23 +23,23 @@ pub struct LWE {
     pub data: concrete::LWE,
 }
 
-impl GenericAdd<f64, CryptoAPIError> for LWE {
-    fn add(&self, right: f64) -> Result<LWE, CryptoAPIError> {
-        self.add_constant_dynamic_encoder(right)
-    }
-    fn add_inplace(&mut self, right: f64) -> Result<(), CryptoAPIError> {
-        self.add_constant_dynamic_encoder_inplace(right)
-    }
-}
+// impl GenericAdd<f64, CryptoAPIError> for LWE {
+//     fn add(&self, right: f64) -> Result<LWE, CryptoAPIError> {
+//         self.add_constant_dynamic_encoder(right)
+//     }
+//     fn add_inplace(&mut self, right: f64) -> Result<(), CryptoAPIError> {
+//         self.add_constant_dynamic_encoder_inplace(right)
+//     }
+// }
 
-impl GenericAdd<&LWE, CryptoAPIError> for LWE {
-    fn add(&self, right: &LWE) -> Result<LWE, CryptoAPIError> {
-        self.add_with_padding(right)
-    }
-    fn add_inplace(&mut self, right: &LWE) -> Result<(), CryptoAPIError> {
-        self.add_with_padding_inplace(right)
-    }
-}
+// impl GenericAdd<&LWE, CryptoAPIError> for LWE {
+//     fn add(&self, right: &LWE) -> Result<LWE, CryptoAPIError> {
+//         self.add_with_padding(right)
+//     }
+//     fn add_inplace(&mut self, right: &LWE) -> Result<(), CryptoAPIError> {
+//         self.add_with_padding_inplace(right)
+//     }
+// }
 
 #[pymethods]
 impl LWE {
@@ -63,13 +65,14 @@ impl LWE {
     }
 
     #[getter]
-    pub fn get_encoder(&self) -> &crate::Encoder {
-        self.data.encoder
+    pub fn get_encoder(&self) -> crate::Encoder {
+        let data = self.data.encoder.clone();
+        crate::Encoder{ data }
     }
 
     #[setter]
     pub fn set_encoder(&mut self, v: crate::Encoder) {
-        self.data.encoder = v;
+        self.data.encoder = v.data;
     }
 
     /// Instantiate a new LWE filled with zeros from a dimension
@@ -90,7 +93,8 @@ impl LWE {
     /// ```
     #[staticmethod]
     pub fn zero(dimension: usize) -> PyResult<crate::LWE> {
-        translate_error!(concrete::LWE::zero(dimension))
+        let data = translate_error!(concrete::LWE::zero(dimension))?;
+        Ok(LWE{ data })
     }
 
     /// Encode a message and then directly encrypt the plaintext into an LWE structure
@@ -124,7 +128,8 @@ impl LWE {
         message: f64,
         encoder: &crate::Encoder,
     ) -> PyResult<LWE> {
-        translate_error!(concrete::LWE::encode_encrypt(&sk.data, message, &encoder.data))
+        let data = translate_error!(concrete::LWE::encode_encrypt(&sk.data, message, &encoder.data))?;
+        Ok(LWE{ data })
     }
 
     /// Encrypt a raw plaintext (a Torus element instead of a struct Plaintext) with the provided key and standard deviation
@@ -155,7 +160,7 @@ impl LWE {
         sk: &crate::LWESecretKey,
         plaintext: Torus,
     ) -> PyResult<()> {
-        translate_error!(concrete::LWE::encrypt_raw(&sk.data, plaintext))
+        translate_error!(self.data.encrypt_raw(&sk.data, plaintext))
     }
 
     /// Decrypt the ciphertext, meaning compute the phase and directly decode the output
@@ -245,7 +250,7 @@ impl LWE {
     /// let ct_add = ciphertext.add_constant_static_encoder(message_2).unwrap();
     /// ```
     pub fn add_constant_static_encoder(&self, message: f64) -> PyResult<crate::LWE> {
-        let data = translate_error!(concrete::LWE::add_constant_static_encoder(message)).unwrap();
+        let data = translate_error!(self.data.add_constant_static_encoder(message))?;
         Ok(LWE{ data })
     }
 
@@ -399,7 +404,8 @@ impl LWE {
         ct: &crate::LWE,
         new_min: f64,
     ) -> PyResult<crate::LWE> {
-        translate_error!(self.data.add_with_new_min(&ct.data, new_min))
+        let data = translate_error!(self.data.add_with_new_min(&ct.data, new_min))?;
+        Ok(LWE{ data })
     }
 
     /// Compute an homomorphic addition between two LWE ciphertexts
@@ -488,7 +494,8 @@ impl LWE {
     /// let new_ciphertext = ciphertext_1.add_centered(&ciphertext_2).unwrap();
     /// ```
     pub fn add_centered(&self, ct: &crate::LWE) -> PyResult<crate::LWE> {
-        translate_error!(self.data.add_centered(&ct.data))
+        let data = translate_error!(self.data.add_centered(&ct.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute an homomorphic addition between two LWE ciphertexts.
@@ -572,7 +579,8 @@ impl LWE {
     /// let ct_add = ciphertext_1.add_with_padding(&ciphertext_2);
     /// ```
     pub fn add_with_padding(&self, ct: &crate::LWE) -> PyResult<crate::LWE> {
-        translate_error!(self.add_with_padding(&ct.data))
+        let data = translate_error!(self.data.add_with_padding(&ct.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute an addition between two LWE ciphertexts by eating one bit of padding.
@@ -647,7 +655,8 @@ impl LWE {
     /// let ct_add = ciphertext_1.add_with_padding_exact(&ciphertext_2);
     /// ```
     pub fn add_with_padding_exact(&self, ct: &crate::LWE) -> PyResult<crate::LWE> {
-        translate_error!(self.data.add_with_padding_exact(&ct.data))
+        let data = translate_error!(self.data.add_with_padding_exact(&ct.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute an addition between two LWE ciphertexts by eating one bit of padding.
@@ -687,7 +696,7 @@ impl LWE {
         &mut self,
         ct: &crate::LWE,
     ) -> PyResult<()> {
-        translate_error!(self.add_with_padding_exact_inplace(&ct.data))
+        translate_error!(self.data.add_with_padding_exact_inplace(&ct.data))
     }
 
     /// Compute an subtraction between two LWE ciphertexts by eating one bit of padding.
@@ -725,7 +734,8 @@ impl LWE {
     /// let ct_sub = ciphertext_1.add_with_padding(&ciphertext_2);
     /// ```
     pub fn sub_with_padding(&self, ct: &crate::LWE) -> PyResult<crate::LWE> {
-        translate_error!(self.data.sub_with_padding(&ct.data))
+        let data = translate_error!(self.data.sub_with_padding(&ct.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute an subtraction between two LWE ciphertexts by eating one bit of padding.
@@ -800,7 +810,8 @@ impl LWE {
     /// let ct_sub = ciphertext_1.sub_with_padding_exact(&ciphertext_2);
     /// ```
     pub fn sub_with_padding_exact(&self, ct: &crate::LWE) -> PyResult<crate::LWE> {
-        translate_error!(self.data.sub_with_padding_exact(&ct.data))
+        let data = translate_error!(self.data.sub_with_padding_exact(&ct.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute an subtraction between two LWE ciphertexts by eating one bit of padding.
@@ -840,7 +851,7 @@ impl LWE {
         &mut self,
         ct: &crate::LWE,
     ) -> PyResult<()> {
-        translate_error!(self.data.sub_with_padding_exact_inplace(&ct.data)
+        translate_error!(self.data.sub_with_padding_exact_inplace(&ct.data))
     }
 
     /// Multiply LWE ciphertext with small integer message and does not change the encoding but changes the body and mask of the ciphertext
@@ -876,7 +887,8 @@ impl LWE {
     /// let new_ciphertext = ciphertext.mul_constant_static_encoder(message_2).unwrap();
     /// ```
     pub fn mul_constant_static_encoder(&self, message: i32) -> PyResult<crate::LWE> {
-        translate_error!(self.data.mul_constant_static_encoder(message))
+        let data = translate_error!(self.data.mul_constant_static_encoder(message))?;
+        Ok(LWE{ data })
     }
 
     /// Multiply LWE ciphertext with small integer message and does not change the encoding but changes the body and mask of the ciphertext
@@ -962,7 +974,9 @@ impl LWE {
         max_constant: f64,
         nb_bit_padding: usize,
     ) -> PyResult<crate::LWE> {
-        translate_error!(self.data.mul_constant_with_padding(constant, max_constant, nb_bit_padding))
+        let data = translate_error!(self.data.mul_constant_with_padding(
+            constant, max_constant, nb_bit_padding))?;
+        Ok(LWE{ data })
     }
 
     /// Multiply each LWE ciphertext with a real constant and do change the encoding and the ciphertexts by consuming some bits of padding
@@ -1012,7 +1026,7 @@ impl LWE {
         max_constant: f64,
         nb_bit_padding: usize,
     ) -> PyResult<()> {
-        translate_error!(self.data.mul_constant_static_encoder_inplace(constant, max_constant, nb_bit_padding))
+        translate_error!(self.data.mul_constant_with_padding_inplace(constant, max_constant, nb_bit_padding))
     }
 
     /// Compute the opposite of the n-th LWE ciphertext in the structure
@@ -1044,7 +1058,8 @@ impl LWE {
     /// let new_ciphertext = ciphertext.opposite().unwrap();
     /// ```
     pub fn opposite(&self) -> PyResult<crate::LWE> {
-        translate_error!(self.data.opposite())
+        let data = translate_error!(self.data.opposite())?;
+        Ok(LWE{ data })
     }
 
     /// Compute the opposite of the n-th LWE ciphertext in the structure
@@ -1123,7 +1138,8 @@ impl LWE {
     /// let ciphertext_after = ciphertext_before.keyswitch(&ksk).unwrap();
     /// ```
     pub fn keyswitch(&self, ksk: &crate::LWEKSK) -> PyResult<crate::LWE> {
-        translate_error!(self.data.keyswitch(&ksk.data))
+        let data = translate_error!(self.data.keyswitch(&ksk.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute a bootstrap on the LWE
@@ -1174,9 +1190,8 @@ impl LWE {
     ///     .unwrap();
     /// ```
     pub fn bootstrap(&self, bsk: &crate::LWEBSK) -> PyResult<crate::LWE> {
-        // TODO:
-        // self.bootstrap_with_function(bsk, |x| x, &self.encoder)
-        self.data.bootstrap_with_function(bsk, |x| x, &self.data.encoder.data)
+        let data = translate_error!(self.data.bootstrap(&bsk.data))?;
+        Ok(LWE{ data })
     }
 
     /// Compute a bootstrap and apply an arbitrary function to the LWE ciphertext
@@ -1229,14 +1244,20 @@ impl LWE {
     ///     .bootstrap_with_function(&bootstrapping_key, |x| f64::max(0., x), &encoder_output)
     ///     .unwrap();
     /// ```
-    pub fn bootstrap_with_function<F: Fn(f64) -> f64>(
-        &self,
-        bsk: &crate::LWEBSK,
-        f: F,
-        encoder_output: &crate::Encoder,
+    // pub fn bootstrap_with_function<F: Fn(f64) -> f64>(
+    //     &self,
+    //     bsk: &crate::LWEBSK,
+    //     f: F,
+    //     encoder_output: &crate::Encoder,
+    // ) -> PyResult<crate::LWE> {
+    //     translate_error!(self.data.bootstrap_with_function(&bsk, f, &encoder_output.data))
+    // }
+    pub fn bootstrap_with_function(
+        &self, bsk: &crate::LWEBSK, f: &PyFunction, encoder_output: &crate::Encoder,
     ) -> PyResult<crate::LWE> {
-        // TODO:
-        translate_error!(self.data.bootstrap_with_function(&bsk, f, &encoder_output.data))
+        let fun = |x| f.call1((x,)).unwrap().extract::<f64>().unwrap();
+        let data = translate_error!(self.data.bootstrap_with_function(&bsk.data, fun, &encoder_output.data))?;
+        Ok(LWE{ data })
     }
 
     /// Multiply two LWE ciphertexts thanks to two bootstrapping procedures
@@ -1302,7 +1323,8 @@ impl LWE {
         ct: &crate::LWE,
         bsk: &crate::LWEBSK,
     ) -> PyResult<crate::LWE> {
-        translate_error!(self.mul_from_bootstrap(&ct.data, &bsk.data))
+        let data = translate_error!(self.data.mul_from_bootstrap(&ct.data, &bsk.data))?;
+        Ok(LWE{ data })
     }
 
     /// Return the size of one LWE ciphertext with the parameters of self
@@ -1311,16 +1333,6 @@ impl LWE {
     /// * a usize with the size of a single LWE ciphertext
     pub fn get_ciphertext_size(&self) -> usize {
         self.data.dimension + 1
-    }
-
-    pub fn save(&self, path: &str) -> PyResult<()> {
-        translate_error!(self.data.save(path))
-    }
-
-    #[staticmethod]
-    pub fn load(path: &str) -> PyResult<LWE> {
-        let data = concrete::LWE::load(path).unwrap();
-        Ok(LWE{ data })
     }
 
     /// Removes nb bits of padding
@@ -1347,7 +1359,17 @@ impl LWE {
     /// ciphertext.remove_padding_inplace(2).unwrap();
     /// ```
     pub fn remove_padding_inplace(&mut self, nb: usize) -> PyResult<()> {
-        translate_error!(self.remove_padding_inplace(nb))
+        translate_error!(self.data.remove_padding_inplace(nb))
+    }
+
+    pub fn save(&self, path: &str) -> PyResult<()> {
+        translate_error!(self.data.save(path))
+    }
+
+    #[staticmethod]
+    pub fn load(path: &str) -> PyResult<LWE> {
+        let data = translate_error!(concrete::LWE::load(path))?;
+        Ok(LWE{ data })
     }
 
     pub fn __repr__(&self) -> String {
