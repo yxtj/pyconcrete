@@ -7,27 +7,31 @@ use pyo3::exceptions::PyValueError;
 // #[warn(unused_imports)]
 // use concrete::*;
 
-// pub_mod_use!(lwe_ksk);
-// pub_mod_use!(lwe_bsk);
-// pub_mod_use!(lwe_secret_key);
-// pub_mod_use!(rlwe_params);
-// pub_mod_use!(rlwe_secret_key);
+pub mod encoder;
+pub use encoder::Encoder;
+pub mod plaintext;
+pub use plaintext::Plaintext;
 
 pub mod lwe_params;
 pub use lwe_params::LWEParams;
-pub mod encoder;
-pub use encoder::Encoder;
-// pub_mod_use!(lwe);
-pub mod plaintext;
-pub use plaintext::Plaintext;
-// pub_mod_use!(vector_rlwe);
-// pub_mod_use!(vector_lwe);
 pub mod lwe_secret_key;
 pub use lwe_secret_key::LWESecretKey;
 pub mod rlwe_params;
 pub use rlwe_params::RLWEParams;
 pub mod rlwe_secret_key;
 pub use rlwe_secret_key::RLWESecretKey;
+
+pub mod lwe_ksk;
+pub use lwe_ksk::LWEKSK;
+pub mod lwe_bsk;
+pub use lwe_bsk::LWEBSK;
+
+// pub mod lwe;
+// pub use lwe::LWE;
+// pub mod vector_lwe;
+// pub use vector_lwe::VectorLWE;
+// pub mod vector_rlwe;
+// pub use vector_rlwe::VectorRLWE;
 
 
 #[macro_export]
@@ -44,10 +48,21 @@ macro_rules! translate_error {
 fn pyconcrete(py: Python, m: &PyModule) -> PyResult<()> {
     // m.add_wrapped(wrap_pyfunction!(encode_test))?;
     // m.add_wrapped(wrap_pyfunction!(lwe_params))?;
-    lwe_params::register(py, m)?;
     encoder::register(py, m)?;
     plaintext::register(py, m)?;
 
+    lwe_params::register(py, m)?;
+    lwe_params::register(py, m)?;
+    lwe_secret_key::register(py, m)?;
+    rlwe_params::register(py, m)?;
+    rlwe_secret_key::register(py, m)?;
+
+    lwe_ksk::register(py, m)?;
+    lwe_bsk::register(py, m)?;
+    
+    // lwe::register(py, m)?;
+    // vector_lwe::register(py, m)?;
+    // vector_rlwe::register(py, m)?;
 
     Ok(())
 }

@@ -1,3 +1,9 @@
+use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
+use pyo3::types::{PyFunction};
+use concrete;
+use concrete::{Torus};
+use super::{translate_error};//, LWESecretKey};
 
 #[pyclass]
 #[derive(Debug, PartialEq, Clone)]
@@ -83,15 +89,25 @@ impl LWEBSK {
     ///
     /// # Output
     /// * a slice of Torus containing the lookup table
-    pub fn generate_functional_look_up_table<F: Fn(f64) -> f64>(
+    // pub fn generate_functional_look_up_table<F: Fn(f64) -> f64>(
+    //     &self,
+    //     encoder_input: &crate::Encoder,
+    //     encoder_output: &crate::Encoder,
+    //     f: F,
+    // ) -> PyResult<Vec<Torus>> {
+    //     // TODO: func
+    //     translate_error!(self.data.generate_functional_look_up_table(
+    //         &encoder_input.data, &encoder_output.data, f))
+    // }
+    pub fn generate_functional_look_up_table(
         &self,
         encoder_input: &crate::Encoder,
         encoder_output: &crate::Encoder,
-        f: F,
+        f: &PyFunction,
     ) -> PyResult<Vec<Torus>> {
-        // TODO: func
+        let fun = |x| f.call1((x,)).unwrap().extract::<f64>().unwrap();
         translate_error!(self.data.generate_functional_look_up_table(
-            encoder_input.data, encoder_output.data, f))
+            &encoder_input.data, &encoder_output.data, fun))
     }
 
     /// Build a lookup table for the identity function from two encoders
@@ -107,7 +123,8 @@ impl LWEBSK {
         encoder_input: &crate::Encoder,
         encoder_output: &crate::Encoder,
     ) -> PyResult<Vec<Torus>> {
-        self.data.generate_functional_look_up_table(encoder_input, encoder_output, |x| x)
+        translate_error!(self.data.generate_identity_look_up_table(
+            &encoder_input.data, &encoder_output.data))
     }
 
     /// Create a valid bootstrapping key
@@ -127,7 +144,7 @@ impl LWEBSK {
         base_log: usize,
         level: usize,
     ) -> LWEBSK {
-        let data = concrete::LWEBSK::new(sk_input, sk_output, base_log, level);
+        let data = concrete::LWEBSK::new(&sk_input.data, &sk_output.data, base_log, level);
         LWEBSK{ data }
     }
 
@@ -148,21 +165,23 @@ impl LWEBSK {
         base_log: usize,
         level: usize,
     ) -> LWEBSK {
-        let data = concrete::LWEBSK::zero(sk_input, sk_output, base_log, level);
+        let data = concrete::LWEBSK::zero(&sk_input.data, &sk_output.data, base_log, level);
         LWEBSK{ data }
     }
 
     pub fn save(&self, path: &str) {
         self.data.save(path);
-        Ok(())
     }
 
     #[staticmethod]
     pub fn load(path: &str) -> crate::LWEBSK {
-        let data = concrete::LWEBSK::load(path)
-        return LWEBSK{ data }
+        let data = concrete::LWEBSK::load(path);
+        LWEBSK{ data }
     }
-    
+
+    pub fn __repr__(&self) -> String {
+        self.data.to_string()
+    }
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
