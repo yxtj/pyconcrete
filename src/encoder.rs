@@ -481,7 +481,7 @@ impl Encoder {
         Ok(())
     }
 
-    fn __repr__(&self) -> String {
+    pub fn __repr__(&self) -> String {
         self.data.to_string()
     }
 }

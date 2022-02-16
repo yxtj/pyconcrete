@@ -215,8 +215,8 @@ impl LWEParams {
         Ok(LWEParams{ data })
     }
 
-    fn __repr__(&self) -> String {
-        format!("{}", self.data)
+    pub fn __repr__(&self) -> String {
+        self.data.to_string()
     }
 }
 
