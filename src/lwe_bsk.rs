@@ -95,7 +95,6 @@ impl LWEBSK {
     //     encoder_output: &crate::Encoder,
     //     f: F,
     // ) -> PyResult<Vec<Torus>> {
-    //     // TODO: func
     //     translate_error!(self.data.generate_functional_look_up_table(
     //         &encoder_input.data, &encoder_output.data, f))
     // }
