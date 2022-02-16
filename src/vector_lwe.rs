@@ -2,7 +2,9 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::*;
+use pyo3::types::{PyList, PyFunction};
 use concrete;
+use concrete::{Torus};
 use super::translate_error;
 
 /// Structure containing a list of LWE ciphertexts.
@@ -15,7 +17,7 @@ use super::translate_error;
 /// * `nb_ciphertexts` - the number of LWE ciphertexts present in the list
 /// * `encoders` - the encoders of each LWE ciphertext of the list
 #[pyclass]
-// #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VectorLWE {
     // pub ciphertexts: LweList<Vec<Torus>>,
     // pub variances: Vec<f64>,
@@ -25,15 +27,16 @@ pub struct VectorLWE {
     pub data: concrete::VectorLWE,
 }
 
+#[pymethods]
 impl VectorLWE {
 
     #[getter]
     pub fn get_variances(&self) -> Vec<f64> {
-        self.data.variances
+        self.data.variances.clone()
     }
 
     #[setter]
-    pub fn set_variances(&mut self, v: &Vec<f64>) {
+    pub fn set_variances(&mut self, v: Vec<f64>) {
         self.data.variances = v;
     }
 
@@ -57,10 +60,10 @@ impl VectorLWE {
         self.data.nb_ciphertexts = v;
     }
 
-    // #[getter]
-    // pub fn get_encoders(&self) -> Vec<crate::Encoder> {
-    //     self.data.encoders
-    // }
+    #[getter]
+    pub fn get_encoders(&self) -> Vec<crate::Encoder> {
+        self.data.encoders.iter().map(|x| crate::Encoder{data:x.clone()}).collect()
+    }
 
     // #[setter]
     // pub fn set_encoders(&mut self, v: &Vec<crate::Encoder>) {
@@ -90,7 +93,8 @@ impl VectorLWE {
         dimension: usize,
         nb_ciphertexts: usize,
     ) -> PyResult<crate::VectorLWE> {
-        translate_error!(concrete::VectorLWE::zero(dimension, nb_ciphertexts))
+        let data = translate_error!(concrete::VectorLWE::zero(dimension, nb_ciphertexts))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Copy one ciphertext from an VectorLWE structure inside the self VectorLWE structure
@@ -123,7 +127,7 @@ impl VectorLWE {
         ct: &VectorLWE,
         ct_index: usize,
     ) -> PyResult<()> {
-        translate_error!(self.data.copy_in_nth_nth_inplace(self_index, ct, ct_index))
+        translate_error!(self.data.copy_in_nth_nth_inplace(self_index, &ct.data, ct_index))
     }
 
     /// extract the n-th of the LWE ciphertexts from an VectorLWE structure and output a new VectorLWE structure with only a copy of this ciphertext
@@ -145,7 +149,8 @@ impl VectorLWE {
     /// let ct_extracted = ct.extract_nth(0).unwrap();
     /// ```
     pub fn extract_nth(&self, n: usize) -> PyResult<crate::VectorLWE> {
-        translate_error!(self.data.extract_nth(n))
+        let data = translate_error!(self.data.extract_nth(n))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Encrypt plaintexts from a Plaintext with the provided LWEParams
@@ -181,7 +186,8 @@ impl VectorLWE {
         sk: &crate::LWESecretKey,
         plaintexts: &crate::Plaintext,
     ) -> PyResult<crate::VectorLWE> {
-        translate_error!(concrete::VectorLWE::encrypt(sk.data, plaintext.data))
+        let data = translate_error!(concrete::VectorLWE::encrypt(&sk.data, &plaintexts.data))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Encode messages and then directly encrypt the plaintexts into an VectorLWE structure
@@ -213,10 +219,12 @@ impl VectorLWE {
     #[staticmethod]
     pub fn encode_encrypt(
         sk: &crate::LWESecretKey,
-        messages: &[f64],
+        messages: Vec<f64>,
         encoder: &crate::Encoder,
     ) -> PyResult<VectorLWE> {
-        translate_error!(concrete::VectorLWE::encode_encrypt(sk.data, messages, encoder.data))
+        let data = translate_error!(concrete::VectorLWE::encode_encrypt(
+            &sk.data, &messages, &encoder.data))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Encode messages with a different encoder for each message and encrypt them
@@ -249,48 +257,22 @@ impl VectorLWE {
     /// // encode and encrypt
     /// let mut ciphertext = VectorLWE::encode_encrypt_several_encoders(&secret_key, &messages, &encoders).unwrap();
     /// ```
+    // pub fn encode_encrypt_several_encoders(
+    //     sk: &crate::LWESecretKey,
+    //     messages: &[f64],
+    //     encoders: &[crate::Encoder],
+    // ) -> PyResult<VectorLWE> {
+    #[staticmethod]
     pub fn encode_encrypt_several_encoders(
         sk: &crate::LWESecretKey,
-        messages: &[f64],
-        encoders: &[crate::Encoder],
-    ) -> Result<VectorLWE, CryptoAPIError> {
-        let mut plaintexts: Vec<Torus> = vec![0; messages.len()];
-        let mut result_encoders: Vec<crate::Encoder> = encoders.to_vec();
-        for (((pt, m), enc), res_enc) in plaintexts
-            .iter_mut()
-            .zip(messages.iter())
-            .zip(encoders.iter())
-            .zip(result_encoders.iter_mut())
-        {
-            *pt = enc.encode_core(*m)?;
-
-            let nb_bit_overlap: usize =
-                res_enc.update_precision_from_variance(f64::powi(sk.std_dev, 2i32))?;
-
-            // notification of a problem
-            if nb_bit_overlap > 0 {
-                println!(
-                "{}: {} bit(s) with {} bit(s) of message originally. Consider increasing the dimension the reduce the amount of noise needed.",
-                "Loss of precision during encrypt".red().bold(),
-                nb_bit_overlap, enc.nb_bit_precision
-            );
-            }
-        }
-
-        let mut res = VectorLWE {
-            ciphertexts: LweList::allocate(
-                0,
-                LweSize(sk.dimension + 1),
-                CiphertextCount(messages.len()),
-            ),
-            variances: vec![0.; messages.len()],
-            dimension: sk.dimension,
-            nb_ciphertexts: messages.len(),
-            encoders: result_encoders,
-        };
-        res.encrypt_raw(sk, &plaintexts).unwrap();
-
-        Ok(res)
+        messages: Vec<f64>,
+        encoders: &PyList,
+    ) -> PyResult<VectorLWE> {
+        let tmp: Vec<concrete::Encoder> = encoders.iter().map(
+            |x| x.extract::<crate::Encoder>().unwrap().data).collect();
+        let data = translate_error!(concrete::VectorLWE::encode_encrypt_several_encoders(
+            &sk.data, &messages, &tmp))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Encrypt plaintexts from a Plaintext with the provided LWEParams
@@ -324,28 +306,8 @@ impl VectorLWE {
         &mut self,
         sk: &crate::LWESecretKey,
         plaintexts: &crate::Plaintext,
-    ) -> Result<(), CryptoAPIError> {
-        // encryption
-        self.encrypt_raw(sk, &plaintexts.plaintexts).unwrap();
-
-        for (output_enc, input_enc) in izip!(self.encoders.iter_mut(), plaintexts.encoders.iter()) {
-            // copy the Encoders from the Plaintexts to the VectorLWE
-            output_enc.copy(input_enc);
-
-            // check if there is an overlap of the noise into the message
-            let nb_bit_overlap: usize =
-                output_enc.update_precision_from_variance(f64::powi(sk.std_dev, 2i32))?;
-
-            // notification of a problem is there is overlap
-            if nb_bit_overlap > 0 {
-                println!(
-                    "{}: {} bit(s) with {} bit(s) of message originally. Consider increasing the dimension to reduce the amount of noise needed.",
-                    "Loss of precision during encrypt".red().bold(),
-                    nb_bit_overlap, input_enc.nb_bit_precision
-                );
-            }
-        }
-        Ok(())
+    ) -> PyResult<()> {
+        translate_error!(self.data.encrypt_inplace(&sk.data, &plaintexts.data))
     }
 
     /// Encrypt several raw plaintexts (list of Torus element instead of a struct Plaintext) with the provided key and standard deviation
@@ -374,30 +336,9 @@ impl VectorLWE {
     pub fn encrypt_raw(
         &mut self,
         sk: &crate::LWESecretKey,
-        plaintexts: &[Torus],
-    ) -> Result<(), CryptoAPIError> {
-        // compute the variance
-        let var = sk.get_variance();
-
-        // check if we have enough std dev to have noise in the ciphertext
-        if sk.std_dev < f64::powi(2., -(<Torus as Numeric>::BITS as i32) + 2) {
-            return Err(NoNoiseInCiphertext!(var));
-        }
-
-        // fill the variance array
-        for (self_var, _pt) in izip!(self.variances.iter_mut(), plaintexts.iter()) {
-            *self_var = var;
-        }
-
-        // encrypt
-        sk.val.encrypt_lwe_list(
-            &mut self.ciphertexts,
-            &PlaintextList::from_container(plaintexts),
-            StandardDev::from_standard_dev(sk.std_dev),
-            &mut EncryptionRandomGenerator::new(None),
-        );
-
-        Ok(())
+        plaintexts: Vec<Torus>,
+    ) -> PyResult<()> {
+        translate_error!(self.data.encrypt_raw(&sk.data, &plaintexts))
     }
 
     /// Decrypt the list of ciphertexts, meaning compute the phase and directly decode the output
@@ -428,30 +369,8 @@ impl VectorLWE {
     ///
     /// let res = ct.decrypt_decode(&sk).unwrap();
     /// ```
-    pub fn decrypt_decode(&self, sk: &crate::LWESecretKey) -> Result<Vec<f64>, CryptoAPIError> {
-        // check dimensions
-        if sk.dimension != self.dimension {
-            return Err(DimensionError!(self.dimension, sk.dimension));
-        }
-
-        // allocate the result
-        let mut result: Vec<f64> = vec![0.; self.nb_ciphertexts];
-
-        // create a temporary variable to store the result of the phase computation
-        let mut tmp: Vec<Torus> = vec![0; self.nb_ciphertexts];
-
-        // compute the phase
-        sk.val.decrypt_lwe_list(
-            &mut PlaintextList::from_container(tmp.as_mut_slice()),
-            &self.ciphertexts,
-        );
-
-        // decode
-        for (r, pt, enc) in izip!(result.iter_mut(), tmp.iter(), self.encoders.iter()) {
-            *r = enc.decode_single(*pt)?;
-        }
-
-        Ok(result)
+    pub fn decrypt_decode(&self, sk: &crate::LWESecretKey) -> PyResult<Vec<f64>> {
+        translate_error!(self.data.decrypt_decode(&sk.data))
     }
 
     /// Decrypt the list of ciphertexts, meaning compute the phase and directly decode the output
@@ -482,22 +401,8 @@ impl VectorLWE {
     ///
     /// let res = ct.decrypt_raw(&sk).unwrap();
     /// ```
-    pub fn decrypt_raw(&self, sk: &crate::LWESecretKey) -> Result<Vec<u64>, CryptoAPIError> {
-        // check dimensions
-        if sk.dimension != self.dimension {
-            return Err(DimensionError!(self.dimension, sk.dimension));
-        }
-
-        // create a temporary variable to store the result of the phase computation
-        let mut tmp: Vec<u64> = vec![0; self.nb_ciphertexts];
-
-        // compute the phase
-        sk.val.decrypt_lwe_list(
-            &mut PlaintextList::from_container(tmp.as_mut_slice()),
-            &self.ciphertexts,
-        );
-
-        Ok(tmp)
+    pub fn decrypt_raw(&self, sk: &crate::LWESecretKey) -> PyResult<Vec<u64>> {
+        translate_error!(self.data.decrypt_raw(&sk.data))
     }
 
     /// Decrypt the list of ciphertexts, meaning compute the phase and directly decode the output as if the encoder was set in round mode
@@ -531,32 +436,8 @@ impl VectorLWE {
     pub fn decrypt_decode_round(
         &self,
         sk: &crate::LWESecretKey,
-    ) -> Result<Vec<f64>, CryptoAPIError> {
-        // check dimensions
-        if sk.dimension != self.dimension {
-            return Err(DimensionError!(self.dimension, sk.dimension));
-        }
-
-        // allocate the result
-        let mut result: Vec<f64> = vec![0.; self.nb_ciphertexts];
-
-        // create a temporary variable to store the result of the phase computation
-        let mut tmp: Vec<Torus> = vec![0; self.nb_ciphertexts];
-
-        // compute the phase
-        sk.val.decrypt_lwe_list(
-            &mut PlaintextList::from_container(tmp.as_mut_slice()),
-            &self.ciphertexts,
-        );
-
-        // decode
-        for (r, pt, enc) in izip!(result.iter_mut(), tmp.iter(), self.encoders.iter()) {
-            let mut tmp_enc = enc.clone();
-            tmp_enc.round = true;
-            *r = tmp_enc.decode_single(*pt)?;
-        }
-
-        Ok(result)
+    ) -> PyResult<Vec<f64>> {
+        translate_error!(self.data.decrypt_decode_round(&sk.data))
     }
 
     /// Add small messages to a VectorLWE ciphertext and does not change the encoding but changes the bodies of the ciphertexts
@@ -590,11 +471,10 @@ impl VectorLWE {
     /// ```
     pub fn add_constant_static_encoder(
         &self,
-        messages: &[f64],
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.add_constant_static_encoder_inplace(messages)?;
-        Ok(res)
+        messages: Vec<f64>,
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.add_constant_static_encoder(&messages))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Add small messages to a VectorLWE ciphertext and does not change the encoding but changes the bodies of the ciphertexts
@@ -627,28 +507,9 @@ impl VectorLWE {
     /// ```
     pub fn add_constant_static_encoder_inplace(
         &mut self,
-        messages: &[f64],
-    ) -> Result<(), CryptoAPIError> {
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        for (mut ciphertext, lwe_encoder, m) in izip!(
-            self.ciphertexts.as_mut_tensor().subtensor_iter_mut(ct_size),
-            self.encoders.iter(),
-            messages.iter()
-        ) {
-            // error if one message is not in [-delta,delta]
-            if m.abs() > lwe_encoder.delta {
-                return Err(MessageTooBigError!(*m, lwe_encoder.delta));
-            }
-            let mut ec_tmp = lwe_encoder.clone();
-            ec_tmp.o = 0.;
-            let update = ciphertext
-                .get_element(self.dimension)
-                .wrapping_add(ec_tmp.encode_outside_interval_operators(*m)?);
-            *ciphertext.get_element_mut(self.dimension) = update;
-        }
-        Ok(())
+        messages: Vec<f64>,
+    ) -> PyResult<()> {
+        translate_error!(self.data.add_constant_static_encoder_inplace(&messages))
     }
 
     /// Add messages to a VectorLWE ciphertext and translate the interval of a distance equal to the message but does not change either the bodies or the masks of the ciphertexts
@@ -685,11 +546,10 @@ impl VectorLWE {
     /// ```
     pub fn add_constant_dynamic_encoder(
         &self,
-        messages: &[f64],
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.add_constant_dynamic_encoder_inplace(messages)?;
-        Ok(res)
+        messages: Vec<f64>,
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.add_constant_dynamic_encoder(&messages))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Add messages to a VectorLWE ciphertext and translate the interval of a distance equal to the message but does not change either the bodies or the masks of the ciphertexts
@@ -725,18 +585,9 @@ impl VectorLWE {
     /// ```
     pub fn add_constant_dynamic_encoder_inplace(
         &mut self,
-        messages: &[f64],
-    ) -> Result<(), CryptoAPIError> {
-        for (lwe_encoder, m) in izip!(self.encoders.iter_mut(), messages.iter()) {
-            if !lwe_encoder.is_valid() {
-                return Err(InvalidEncoderError!(
-                    lwe_encoder.nb_bit_precision,
-                    lwe_encoder.delta
-                ));
-            }
-            lwe_encoder.o += m;
-        }
-        Ok(())
+        messages: Vec<f64>,
+    ) -> PyResult<()> {
+        translate_error!(self.data.add_constant_dynamic_encoder_inplace(&messages))
     }
 
     /// Compute an homomorphic addition between two VectorLWE ciphertexts
@@ -782,11 +633,10 @@ impl VectorLWE {
     pub fn add_with_new_min(
         &self,
         ct: &crate::VectorLWE,
-        new_min: &[f64],
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.add_with_new_min_inplace(ct, new_min)?;
-        Ok(res)
+        new_min: Vec<f64>,
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.add_with_new_min(&ct.data, &new_min))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute an homomorphic addition between two VectorLWE ciphertexts
@@ -831,57 +681,9 @@ impl VectorLWE {
     pub fn add_with_new_min_inplace(
         &mut self,
         ct: &crate::VectorLWE,
-        new_min: &[f64],
-    ) -> Result<(), CryptoAPIError> {
-        // check dimensions
-        if ct.dimension != self.dimension {
-            return Err(DimensionError!(self.dimension, ct.dimension));
-        }
-
-        // add the two ciphertexts together
-        self.ciphertexts
-            .as_mut_tensor()
-            .update_with_wrapping_add(ct.ciphertexts.as_tensor());
-
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        // correction related to the addition
-        for (mut ciphertext, enc1, enc2, new) in izip!(
-            self.ciphertexts.as_mut_tensor().subtensor_iter_mut(ct_size),
-            self.encoders.iter(),
-            ct.encoders.iter(),
-            new_min.iter()
-        ) {
-            // error if the deltas are not identical as well as the paddings
-            if !deltas_eq!(enc1.delta, enc2.delta) {
-                return Err(DeltaError!(enc1.delta, enc2.delta));
-            } else if enc1.nb_bit_padding != enc2.nb_bit_padding {
-                return Err(PaddingError!(enc1.nb_bit_padding, enc2.nb_bit_padding));
-            }
-            let mut tmp_ec = enc1.clone();
-            tmp_ec.o = *new;
-            let update = ciphertext
-                .get_element(self.dimension)
-                .wrapping_add(tmp_ec.encode_outside_interval_operators(enc1.o + enc2.o)?);
-            *ciphertext.get_element_mut(self.dimension) = update;
-        }
-
-        // update the Encoder list
-        for (enc, min) in self.encoders.iter_mut().zip(new_min.iter()) {
-            enc.o = *min;
-        }
-
-        // update the noise with the NPE
-        for (var1, var2, enc) in izip!(
-            self.variances.iter_mut(),
-            ct.variances.iter(),
-            self.encoders.iter_mut()
-        ) {
-            *var1 = npe::add_ciphertexts(*var1, *var2);
-            enc.update_precision_from_variance(*var1)?;
-        }
-        Ok(())
+        new_min: Vec<f64>,
+    ) -> PyResult<()> {
+        translate_error!(self.data.add_with_new_min_inplace(&ct.data, &new_min))
     }
 
     /// Compute an homomorphic addition between two VectorLWE ciphertexts.
@@ -922,10 +724,9 @@ impl VectorLWE {
     /// // addition between ciphertext_1 and ciphertext_2
     /// let new_ciphertext = ciphertext_1.add_centered(&ciphertext_2).unwrap();
     /// ```
-    pub fn add_centered(&self, ct: &crate::VectorLWE) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.add_centered_inplace(ct)?;
-        Ok(res)
+    pub fn add_centered(&self, ct: &crate::VectorLWE) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.add_centered(&ct.data))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute an homomorphic addition between two VectorLWE ciphertexts.
@@ -970,59 +771,8 @@ impl VectorLWE {
     /// // addition between ciphertext_1 and ciphertext_2
     /// ciphertext_1.add_centered_inplace(&ciphertext_2).unwrap();
     /// ```
-    pub fn add_centered_inplace(&mut self, ct: &crate::VectorLWE) -> Result<(), CryptoAPIError> {
-        // check same dimensions
-        if self.dimension != ct.dimension {
-            return Err(DimensionError!(self.dimension, ct.dimension));
-        }
-
-        // check same deltas
-        for (self_enc, ct_enc) in self.encoders.iter_mut().zip(ct.encoders.iter()) {
-            if !deltas_eq!(self_enc.delta, ct_enc.delta) {
-                return Err(DeltaError!(self_enc.delta, ct_enc.delta));
-            }
-        }
-
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        // add ciphertexts together
-        self.ciphertexts
-            .as_mut_tensor()
-            .update_with_wrapping_add(ct.ciphertexts.as_tensor());
-
-        // correction related to the addition
-        for (mut ciphertext, enc1) in izip!(
-            self.ciphertexts.as_mut_tensor().subtensor_iter_mut(ct_size),
-            self.encoders.iter(),
-        ) {
-            let mut tmp_enc = enc1.clone();
-            tmp_enc.o = 0.;
-            let correction: Torus = tmp_enc.encode_core(enc1.delta / 2.)?;
-            let update = ciphertext
-                .get_element(self.dimension)
-                .wrapping_sub(correction);
-            *ciphertext.get_element_mut(self.dimension) = update;
-        }
-
-        // update the Encoder list and variances
-        for (self_enc, ct_enc, self_var, ct_var) in izip!(
-            self.encoders.iter_mut(),
-            ct.encoders.iter(),
-            self.variances.iter_mut(),
-            ct.variances.iter()
-        ) {
-            // compute the new encoder
-            self_enc.o += ct_enc.o + self_enc.delta / 2.;
-
-            // compute the new variance
-            *self_var = npe::add_ciphertexts(*self_var, *ct_var);
-
-            // update the encoder precision based on the variance
-            self_enc.update_precision_from_variance(*self_var)?;
-        }
-
-        Ok(())
+    pub fn add_centered_inplace(&mut self, ct: &crate::VectorLWE) -> PyResult<()> {
+        translate_error!(self.data.add_centered_inplace(&ct.data))
     }
 
     /// Compute an addition between two VectorLWE ciphertexts by eating one bit of padding
@@ -1061,10 +811,9 @@ impl VectorLWE {
     pub fn add_with_padding(
         &self,
         ct: &crate::VectorLWE,
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.add_with_padding_inplace(ct)?;
-        Ok(res)
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.add_with_padding(&ct.data))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute an addition between two VectorLWE ciphertexts by eating one bit of padding
@@ -1102,55 +851,8 @@ impl VectorLWE {
     pub fn add_with_padding_inplace(
         &mut self,
         ct: &crate::VectorLWE,
-    ) -> Result<(), CryptoAPIError> {
-        for (self_enc, ct_enc) in izip!(self.encoders.iter(), ct.encoders.iter()) {
-            // check same paddings
-            if self_enc.nb_bit_padding != ct_enc.nb_bit_padding {
-                return Err(PaddingError!(
-                    self_enc.nb_bit_padding,
-                    ct_enc.nb_bit_padding
-                ));
-            }
-            // check at least one bit of padding
-            else if self_enc.nb_bit_padding == 0 {
-                return Err(NotEnoughPaddingError!(self_enc.nb_bit_padding, 1));
-            }
-            // check same deltas
-            else if !deltas_eq!(self_enc.delta, ct_enc.delta) {
-                return Err(DeltaError!(self_enc.delta, ct_enc.delta));
-            }
-        }
-
-        // check the dimensions
-        if self.dimension != ct.dimension {
-            return Err(DimensionError!(self.dimension, ct.dimension));
-        }
-
-        // add ciphertexts together
-        self.ciphertexts
-            .as_mut_tensor()
-            .update_with_wrapping_add(ct.ciphertexts.as_tensor());
-
-        // update the Encoder list and variances
-        for (self_enc, ct_enc, self_var, ct_var) in izip!(
-            self.encoders.iter_mut(),
-            ct.encoders.iter(),
-            self.variances.iter_mut(),
-            ct.variances.iter()
-        ) {
-            // compute the new variance
-            *self_var = npe::add_ciphertexts(*self_var, *ct_var);
-
-            // compute the new encoder
-            self_enc.o += ct_enc.o;
-            self_enc.delta *= 2.;
-            self_enc.nb_bit_padding -= 1;
-            self_enc.nb_bit_precision =
-                usize::min(self_enc.nb_bit_precision, ct_enc.nb_bit_precision);
-            // update the encoder precision based on the variance
-            self_enc.update_precision_from_variance(*self_var)?;
-        }
-        Ok(())
+    ) -> PyResult<()> {
+        translate_error!(self.data.add_with_padding_inplace(&ct.data))
     }
 
     /// Compute an subtraction between two VectorLWE ciphertexts by eating one bit of padding
@@ -1189,10 +891,9 @@ impl VectorLWE {
     pub fn sub_with_padding(
         &self,
         ct: &crate::VectorLWE,
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.sub_with_padding_inplace(ct)?;
-        Ok(res)
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.sub_with_padding(&ct.data))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute an subtraction between two VectorLWE ciphertexts by eating one bit of padding
@@ -1230,67 +931,8 @@ impl VectorLWE {
     pub fn sub_with_padding_inplace(
         &mut self,
         ct: &crate::VectorLWE,
-    ) -> Result<(), CryptoAPIError> {
-        for (self_enc, ct_enc) in izip!(self.encoders.iter(), ct.encoders.iter()) {
-            // check same paddings
-            if self_enc.nb_bit_padding != ct_enc.nb_bit_padding {
-                return Err(PaddingError!(
-                    self_enc.nb_bit_padding,
-                    ct_enc.nb_bit_padding
-                ));
-            }
-            // check at least one bit of padding
-            else if self_enc.nb_bit_padding == 0 {
-                return Err(NotEnoughPaddingError!(self_enc.nb_bit_padding, 1));
-            }
-            // check same deltas
-            else if !deltas_eq!(self_enc.delta, ct_enc.delta) {
-                return Err(DeltaError!(self_enc.delta, ct_enc.delta));
-            }
-        }
-
-        // check the dimensions
-        if self.dimension != ct.dimension {
-            return Err(DimensionError!(self.dimension, ct.dimension));
-        }
-
-        // subtract ciphertexts together
-        self.ciphertexts
-            .as_mut_tensor()
-            .update_with_wrapping_sub(ct.ciphertexts.as_tensor());
-
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        // correction related to the subtraction
-        for (mut ciphertext, enc1) in izip!(
-            self.ciphertexts.as_mut_tensor().subtensor_iter_mut(ct_size),
-            self.encoders.iter(),
-        ) {
-            let correction: Torus = 1 << (<Torus as Numeric>::BITS - enc1.nb_bit_padding);
-            let update = ciphertext
-                .get_element(self.dimension)
-                .wrapping_add(correction);
-            *ciphertext.get_element_mut(self.dimension) = update;
-        }
-
-        // update the Encoder list
-        for (self_enc, ct_enc) in self.encoders.iter_mut().zip(ct.encoders.iter()) {
-            self_enc.o -= ct_enc.o + ct_enc.delta;
-            self_enc.delta *= 2.;
-            self_enc.nb_bit_padding -= 1;
-        }
-
-        // update the noise with the NPE
-        for (var1, var2, enc) in izip!(
-            self.variances.iter_mut(),
-            ct.variances.iter(),
-            self.encoders.iter_mut()
-        ) {
-            *var1 = npe::add_ciphertexts(*var1, *var2);
-            enc.update_precision_from_variance(*var1)?;
-        }
-        Ok(())
+    ) -> PyResult<()> {
+        translate_error!(self.data.sub_with_padding_inplace(&ct.data))
     }
 
     /// Multiply VectorLWE ciphertexts with small integer messages and does not change the encoding but changes the bodies and masks of the ciphertexts
@@ -1327,11 +969,10 @@ impl VectorLWE {
     /// ```
     pub fn mul_constant_static_encoder(
         &self,
-        messages: &[i32],
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.mul_constant_static_encoder_inplace(messages)?;
-        Ok(res)
+        messages: Vec<i32>,
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.mul_constant_static_encoder(&messages))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Multiply VectorLWE ciphertexts with small integer messages and does not change the encoding but changes the bodies and masks of the ciphertexts
@@ -1367,39 +1008,9 @@ impl VectorLWE {
     /// ```
     pub fn mul_constant_static_encoder_inplace(
         &mut self,
-        messages: &[i32],
-    ) -> Result<(), CryptoAPIError> {
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        for (mut ciphertext, m, encoder, var) in izip!(
-            self.ciphertexts.as_mut_tensor().subtensor_iter_mut(ct_size),
-            messages.iter(),
-            self.encoders.iter_mut(),
-            self.variances.iter_mut(),
-        ) {
-            // compute correction
-            let cor0: Torus = encoder.encode_outside_interval_operators(0.)?;
-            let cor = cor0.wrapping_mul((*m - 1) as Torus);
-
-            // multiplication
-            ciphertext.update_with_wrapping_scalar_mul(&(*m as Torus));
-
-            // apply correction
-            let update = ciphertext.get_element(self.dimension).wrapping_sub(cor);
-            *ciphertext.get_element_mut(self.dimension) = update;
-
-            // compute the absolute value
-            let m_abs = m.abs();
-            // call to the NPE to estimate the new variance
-            *var = npe::LWE::single_scalar_mul(*var, m_abs as Torus);
-
-            if m_abs != 0 {
-                // update the encoder precision based on the variance
-                encoder.update_precision_from_variance(*var)?;
-            }
-        }
-        Ok(())
+        messages: Vec<i32>,
+    ) -> PyResult<()> {
+        translate_error!(self.data.mul_constant_static_encoder_inplace(&messages))
     }
 
     /// Multiply each LWE ciphertext with a real constant and do change the encoding and the ciphertexts by consuming some bits of padding
@@ -1443,13 +1054,13 @@ impl VectorLWE {
     /// ```
     pub fn mul_constant_with_padding(
         &self,
-        constants: &[f64],
+        constants: Vec<f64>,
         max_constant: f64,
         nb_bit_padding: usize,
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.mul_constant_with_padding_inplace(constants, max_constant, nb_bit_padding)?;
-        Ok(res)
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.mul_constant_with_padding(
+            &constants, max_constant, nb_bit_padding))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Multiply each LWE ciphertext with a real constant and do change the encoding and the ciphertexts by consuming some bits of padding
@@ -1495,143 +1106,12 @@ impl VectorLWE {
     /// ```
     pub fn mul_constant_with_padding_inplace(
         &mut self,
-        constants: &[f64],
+        constants: Vec<f64>,
         max_constant: f64,
         nb_bit_padding: usize,
-    ) -> Result<(), CryptoAPIError> {
-        // check if we have the same number of messages and ciphertexts
-        if constants.len() != self.nb_ciphertexts {
-            return Err(NbCTError!(constants.len(), self.nb_ciphertexts));
-        }
-
-        // some checks
-        for (c, encoder) in izip!(constants.iter(), self.encoders.iter_mut()) {
-            // check that the constant if below the maximum
-            if *c > max_constant || *c < -max_constant {
-                return Err(ConstantMaximumError!(*c, max_constant));
-            }
-            // check that zero is in the interval
-            else if encoder.o > 0. || encoder.o + encoder.delta < 0. {
-                return Err(ZeroInIntervalError!(encoder.o, encoder.delta));
-            }
-            // check bits of paddings
-            else if encoder.nb_bit_padding < nb_bit_padding {
-                return Err(NotEnoughPaddingError!(
-                    encoder.nb_bit_padding,
-                    nb_bit_padding
-                ));
-            }
-        }
-
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        for (mut ciphertext, c, encoder, var) in izip!(
-            self.ciphertexts.as_mut_tensor().subtensor_iter_mut(ct_size),
-            constants.iter(),
-            self.encoders.iter_mut(),
-            self.variances.iter_mut(),
-        ) {
-            // test if negative
-            let negative: bool = *c < 0.;
-
-            // absolute value
-            let c_abs = c.abs();
-
-            // discretize c_abs with regard to the number of bits of padding to use
-            let scal: Torus =
-                (c_abs / max_constant * f64::powi(2., nb_bit_padding as i32)).round() as Torus;
-
-            // encode 0 and subtract it
-            let tmp_sub = encoder.encode_core(0.)?;
-            let update = ciphertext.get_element(self.dimension).wrapping_sub(tmp_sub);
-            *ciphertext.get_element_mut(self.dimension) = update;
-
-            // scalar multiplication
-            ciphertext.update_with_wrapping_scalar_mul(&scal);
-
-            // new encoder
-            let new_o = encoder.o * max_constant;
-            let new_max = (encoder.o + encoder.delta - encoder.get_granularity()) * max_constant;
-            let new_delta = new_max - new_o;
-
-            // compute the discretization of c_abs
-            let discret_c_abs =
-                (scal as f64) * f64::powi(2., -(nb_bit_padding as i32)) * max_constant;
-
-            // compute  the rounding error on c_abs
-            let rounding_error = (discret_c_abs - c_abs).abs();
-
-            // get the ciphertext granularity
-            let granularity = encoder.get_granularity();
-
-            // compute the max of the ciphertext (based on the metadata of the encoder)
-            let max = f64::max(
-                (encoder.o + encoder.delta - encoder.get_granularity()).abs(),
-                encoder.o.abs(),
-            );
-
-            // compute the new granularity
-            let new_granularity = 2.
-                * (granularity * rounding_error / 2.
-                    + granularity / 2. * discret_c_abs
-                    + rounding_error * max)
-                    .abs();
-
-            // compute the new precision
-            let new_precision = usize::min(
-                f64::log2(new_delta / new_granularity).floor() as usize,
-                encoder.nb_bit_precision,
-            );
-
-            // create the new encoder
-            let tmp_encoder = crate::Encoder::new(
-                new_o,
-                new_max,
-                usize::min(nb_bit_padding, encoder.nb_bit_precision),
-                encoder.nb_bit_padding - nb_bit_padding,
-            )?;
-            encoder.copy(&tmp_encoder);
-            encoder.nb_bit_precision = usize::min(encoder.nb_bit_precision, new_precision);
-            // call to the NPE to estimate the new variance
-            *var = npe::LWE::single_scalar_mul(*var, scal);
-
-            if scal != 0 {
-                // update the encoder precision based on the variance
-                encoder.update_precision_from_variance(*var)?;
-            }
-
-            // encode 0 with the new encoder
-            let tmp_add = encoder.encode_core(0.)?;
-            let update = ciphertext.get_element(self.dimension).wrapping_add(tmp_add);
-            *ciphertext.get_element_mut(self.dimension) = update;
-
-            if negative {
-                // compute the opposite
-                ciphertext.update_with(|a| *a = a.wrapping_neg());
-
-                // add correction if there is some padding
-                let mut cor: Torus = 0;
-                if encoder.nb_bit_padding > 0 {
-                    cor = (1 << (<Torus as Numeric>::BITS - encoder.nb_bit_padding))
-                        - (1 << (<Torus as Numeric>::BITS
-                            - encoder.nb_bit_padding
-                            - encoder.nb_bit_precision));
-                } else {
-                    cor = cor.wrapping_sub(
-                        1 << (<Torus as Numeric>::BITS
-                            - encoder.nb_bit_padding
-                            - encoder.nb_bit_precision),
-                    );
-                }
-                let update = ciphertext.get_element(self.dimension).wrapping_add(cor);
-                *ciphertext.get_element_mut(self.dimension) = update;
-
-                // change the encoder
-                encoder.opposite_inplace()?;
-            }
-        }
-        Ok(())
+    ) -> PyResult<()> {
+        translate_error!(self.data.mul_constant_with_padding_inplace(
+            &constants, max_constant, nb_bit_padding))
     }
 
     /// Compute the opposite of the n-th LWE ciphertext in the structure
@@ -1665,10 +1145,9 @@ impl VectorLWE {
     ///
     /// let new_ciphertext = ciphertext.opposite_nth(3).unwrap();
     /// ```
-    pub fn opposite_nth(&self, n: usize) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut res = self.clone();
-        res.opposite_nth_inplace(n)?;
-        Ok(res)
+    pub fn opposite_nth(&self, n: usize) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.opposite_nth(n))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute the opposite of the n-th LWE ciphertext in the structure
@@ -1702,52 +1181,8 @@ impl VectorLWE {
     ///
     /// ciphertext.opposite_nth_inplace(3).unwrap();
     /// ```
-    pub fn opposite_nth_inplace(&mut self, n: usize) -> Result<(), CryptoAPIError> {
-        // check the index n
-        if n >= self.nb_ciphertexts {
-            return Err(IndexError!(self.nb_ciphertexts, n));
-        }
-        // check the encoders
-        else if !self.encoders[n].is_valid() {
-            return Err(InvalidEncoderError!(
-                self.encoders[n].nb_bit_precision,
-                self.encoders[n].delta
-            ));
-        }
-
-        // get the size of one lwe ciphertext
-        let ct_size = self.get_ciphertext_size();
-
-        // select the n-th ciphertext
-        let mut ct = self
-            .ciphertexts
-            .as_mut_tensor()
-            .get_sub_mut((n * (ct_size))..((n + 1) * (ct_size)));
-
-        // compute the opposite
-        ct.update_with(|a| *a = a.wrapping_neg());
-
-        // add correction if there is some padding
-        let mut cor: Torus = 0;
-        if self.encoders[n].nb_bit_padding > 0 {
-            cor = (1 << (<Torus as Numeric>::BITS - self.encoders[n].nb_bit_padding))
-                - (1 << (<Torus as Numeric>::BITS
-                    - self.encoders[n].nb_bit_padding
-                    - self.encoders[n].nb_bit_precision));
-        } else {
-            cor = cor.wrapping_sub(
-                1 << (<Torus as Numeric>::BITS
-                    - self.encoders[n].nb_bit_padding
-                    - self.encoders[n].nb_bit_precision),
-            );
-        }
-        let update = ct.get_element(self.dimension).wrapping_add(cor);
-        *ct.get_element_mut(self.dimension) = update;
-
-        // change the encoder
-        self.encoders[n].opposite_inplace()?;
-
-        Ok(())
+    pub fn opposite_nth_inplace(&mut self, n: usize) -> PyResult<()> {
+        translate_error!(self.data.opposite_nth_inplace(n))
     }
 
     /// Compute a key switching operation on every ciphertext from the VectorLWE struct self
@@ -1793,49 +1228,9 @@ impl VectorLWE {
     /// // key switch
     /// let ciphertext_after = ciphertext_before.keyswitch(&ksk).unwrap();
     /// ```
-    pub fn keyswitch(&self, ksk: &crate::LWEKSK) -> Result<crate::VectorLWE, CryptoAPIError> {
-        // allocation for the result
-        let mut res: crate::VectorLWE =
-            crate::VectorLWE::zero(ksk.dimension_after, self.nb_ciphertexts)?;
-
-        // key switch
-        ksk.ciphertexts
-            .keyswitch_list(&mut res.ciphertexts, &self.ciphertexts);
-
-        // deal with encoders, noise and new precision
-        for (output_enc, input_enc, vout, vin) in izip!(
-            res.encoders.iter_mut(),
-            self.encoders.iter(),
-            res.variances.iter_mut(),
-            self.variances.iter()
-        ) {
-            // calls the NPE to find out the amount of noise after KS
-            *vout = <Torus as LWE>::key_switch(
-                self.dimension,
-                ksk.level,
-                ksk.base_log,
-                ksk.variance,
-                *vin,
-            );
-
-            // copy the encoders
-            output_enc.copy(input_enc);
-
-            // update the precision
-            let nb_bit_overlap: usize = output_enc.update_precision_from_variance(*vout)?;
-
-            // notification of a problem
-            if nb_bit_overlap > 0 {
-                println!(
-                    "{}: {} bit(s) lost, with {} bit(s) of message originally",
-                    "Loss of precision during key switch".red().bold(),
-                    nb_bit_overlap,
-                    input_enc.nb_bit_precision
-                );
-            }
-        }
-
-        Ok(res)
+    pub fn keyswitch(&self, ksk: &crate::LWEKSK) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.keyswitch(&ksk.data))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute a bootstrap on the n-th LWE from the self VectorLWE structure
@@ -1890,8 +1285,9 @@ impl VectorLWE {
         &self,
         bsk: &crate::LWEBSK,
         n: usize,
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        self.bootstrap_nth_with_function(bsk, |x| x, &self.encoders[n], n)
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.bootstrap_nth(&bsk.data, n))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Compute a bootstrap and apply an arbitrary function to the given VectorLWE ciphertext
@@ -1945,143 +1341,20 @@ impl VectorLWE {
     ///     .bootstrap_nth_with_function(&bootstrapping_key, |x| f64::max(0., x), &encoder_output, 2)
     ///     .unwrap();
     /// ```
-    pub fn bootstrap_nth_with_function<F: Fn(f64) -> f64>(
-        &self,
-        bsk: &crate::LWEBSK,
-        f: F,
-        encoder_output: &crate::Encoder,
-        n: usize,
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        // check the index n
-        if n >= self.nb_ciphertexts {
-            return Err(IndexError!(self.nb_ciphertexts, n));
-        }
-        // check bsk compatibility
-        if self.dimension != bsk.get_lwe_dimension() {
-            return Err(DimensionError!(self.dimension, bsk.get_lwe_dimension()));
-        }
-
-        // generate the look up table
-        let lut = bsk.generate_functional_look_up_table(&self.encoders[n], encoder_output, f)?;
-
-        // build the trivial accumulator
-        let mut accumulator = GlweCiphertext::allocate(
-            0,
-            PolynomialSize(bsk.polynomial_size),
-            GlweSize(bsk.dimension + 1),
-        );
-
-        accumulator
-            .as_mut_tensor()
-            .as_mut_slice()
-            .get_mut(
-                (bsk.dimension * bsk.polynomial_size)..((bsk.dimension + 1) * bsk.polynomial_size),
-            )
-            .unwrap()
-            .copy_from_slice(&lut);
-
-        // allocate the result
-        let mut result =
-            LweCiphertext::allocate(0, LweSize(bsk.dimension * bsk.polynomial_size + 1));
-
-        if self.encoders[n].nb_bit_padding > 1 {
-            // copy the ciphertext to bootstrap
-            let mut ct_clone = self
-                .ciphertexts
-                .as_tensor()
-                .get_sub(n * (self.get_ciphertext_size())..((n + 1) * (self.get_ciphertext_size())))
-                .iter()
-                .copied()
-                .collect::<Vec<Torus>>();
-
-            // shift of some bits to the left
-            Tensor::from_container(ct_clone.as_mut_slice())
-                .update_with_scalar_shl(&(self.encoders[n].nb_bit_padding - 1));
-
-            // compute the bootstrap
-            bsk.ciphertexts.bootstrap(
-                &mut result,
-                &LweCiphertext::from_container(ct_clone),
-                & accumulator,
-            );
-        } else {
-            // compute the bootstrap
-            let ct_view = self
-                .ciphertexts
-                .as_tensor()
-                .get_sub(n * (self.get_ciphertext_size())..((n + 1) * (self.get_ciphertext_size())))
-                .into_container();
-            let ct = LweCiphertext::from_container(ct_view);
-            bsk.ciphertexts
-                .bootstrap(&mut result, &ct, & accumulator);
-        }
-
-        // compute the new variance (without the drift)
-        let new_var = <Torus as npe::Cross>::bootstrap(
-            self.dimension,
-            bsk.dimension,
-            bsk.level,
-            bsk.base_log,
-            bsk.polynomial_size,
-            bsk.variance,
-        );
-
-        // create the output encoder
-        let mut new_encoder_output: crate::Encoder = encoder_output.clone();
-
-        // update the precision in case of the output noise (without drift) is too big and overlap the message
-        let nb_bit_overlap: usize = new_encoder_output.update_precision_from_variance(new_var)?;
-
-        // println!("call to npe : {}", new_var);
-        if nb_bit_overlap > 0 {
-            println!(
-                "{}: {} bit(s) of precision lost over {} bit(s) of message originally. Consider increasing the number of level and/or decreasing the log base.",
-                "Loss of precision during bootstrap".red().bold(),
-                nb_bit_overlap, self.encoders[n].nb_bit_precision
-            );
-        }
-
-        // calls the NPE to find out the amount of noise after rounding the input ciphertext (drift)
-        let nb_rounding_noise_bit: usize =
-            (npe::lwe::log2_rounding_noise(self.dimension)).ceil() as usize + 1;
-
-        // deals with the drift error
-        if nb_rounding_noise_bit
-            + self.encoders[n].nb_bit_padding
-            + new_encoder_output.nb_bit_precision
-            > bsk.get_polynomial_size_log() + 1
-        {
-            let nb_bit_loss = self.encoders[n].nb_bit_padding
-                + new_encoder_output.nb_bit_precision
-                + nb_rounding_noise_bit
-                - bsk.get_polynomial_size_log()
-                - 1;
-
-            new_encoder_output.nb_bit_precision = i32::max(
-                new_encoder_output.nb_bit_precision as i32 - nb_bit_loss as i32,
-                0i32,
-            ) as usize;
-            // drift
-            println!(
-                "{}: {} bit(s) of precision lost over {} bit(s) of message originally ({} bits are affected by the noise). Consider increasing the polynomial size of the RLWE secret key.",
-                "Loss of precision during bootstrap due to the rounding".red().bold(),
-                nb_bit_loss, self.encoders[n].nb_bit_precision,nb_rounding_noise_bit
-            );
-        }
-
-        // construct the output
-        let lwe = crate::VectorLWE {
-            variances: vec![new_var; 1],
-            ciphertexts: LweList::from_container(
-                result.into_tensor().into_container(),
-                LweSize(bsk.polynomial_size * bsk.dimension + 1),
-            ),
-            dimension: bsk.polynomial_size * bsk.dimension,
-            nb_ciphertexts: 1,
-            encoders: vec![new_encoder_output; 1],
-        };
-
-        Ok(lwe)
+    // pub fn bootstrap_nth_with_function<F: Fn(f64) -> f64>(
+    //     &self,
+    //     bsk: &crate::LWEBSK,
+    //     f: F,
+    //     encoder_output: &crate::Encoder,
+    //     n: usize,
+    // ) -> PyResult<crate::VectorLWE> {
+    pub fn bootstrap_nth_with_function(
+        &self, bsk: &crate::LWEBSK, f: &PyFunction, encoder_output: &crate::Encoder, n: usize,
+    ) -> PyResult<crate::VectorLWE> {
+        let fun = |x| f.call1((x,)).unwrap().extract::<f64>().unwrap();
+        let data = translate_error!(self.data.bootstrap_nth_with_function(
+            &bsk.data, fun, &encoder_output.data, n))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Multiply two LWE ciphertexts thanks to two bootstrapping procedures
@@ -2148,44 +1421,10 @@ impl VectorLWE {
         bsk: &crate::LWEBSK,
         n_self: usize,
         n_ct: usize,
-    ) -> Result<crate::VectorLWE, CryptoAPIError> {
-        // extract twice from self
-        let mut ct1 = self.extract_nth(n_self)?;
-        let mut ct2 = self.extract_nth(n_self)?;
-
-        // return an error if nb_bit_precision < 2
-        if ct1.encoders[0].nb_bit_precision < 2 {
-            return Err(NotEnoughPaddingError!(ct1.encoders[0].nb_bit_precision, 2));
-        }
-
-        // extract once from ct
-
-        let input2 = ct.extract_nth(n_ct)?;
-
-        // compute the addition and the subtraction
-        ct1.add_with_padding_inplace(&input2)?;
-        ct2.sub_with_padding_inplace(&input2)?;
-
-        // create the output encoder
-        let mut encoder_out1 = ct1.encoders[0].new_square_divided_by_four(2)?;
-        let mut encoder_out2 = ct2.encoders[0].new_square_divided_by_four(2)?;
-
-        // set the same deltas
-        if encoder_out1.delta < encoder_out2.delta {
-            encoder_out1.delta = encoder_out2.delta;
-        } else {
-            encoder_out2.delta = encoder_out1.delta;
-        }
-
-        // bootstrap
-        let mut square1 =
-            ct1.bootstrap_nth_with_function(bsk, |x| (x * x) / 4., &encoder_out1, 0)?;
-        let square2 = ct2.bootstrap_nth_with_function(bsk, |x| (x * x) / 4., &encoder_out2, 0)?;
-
-        // subtract
-        square1.sub_with_padding_inplace(&square2)?;
-
-        Ok(square1)
+    ) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.mul_from_bootstrap_nth(
+            &ct.data, &bsk.data, n_self, n_ct))?;
+        Ok(VectorLWE{ data })
     }
 
     /// Return the size of one LWE ciphertext with the parameters of self
@@ -2193,64 +1432,11 @@ impl VectorLWE {
     /// # Output
     /// * a usize with the size of a single LWE ciphertext
     pub fn get_ciphertext_size(&self) -> usize {
-        self.dimension + 1
-    }
-
-    pub fn save(&self, path: &str) -> Result<(), Box<dyn Error>> {
-        write_to_file(path, self)
-    }
-
-    pub fn load(path: &str) -> Result<VectorLWE, Box<dyn Error>> {
-        read_from_file(path)
+        self.data.dimension + 1
     }
 
     pub fn pp(&self) {
-        for (variance, encoder) in izip!(self.variances.iter(), self.encoders.iter()) {
-            let mut padding_res: String = "".to_string();
-            // padding part
-            for _i in 0..encoder.nb_bit_padding {
-                padding_res.push('o');
-            }
-            let mut message_res: String = "".to_string();
-
-            // message part
-            for _i in 0..encoder.nb_bit_precision {
-                message_res.push('o');
-            }
-            let noise = npe::nb_bit_from_variance_99(*variance, <Torus as Numeric>::BITS as usize);
-            // <Torus as Types>::TORUS_BIT  + (f64::log2(3. * f64::sqrt(*variance))).floor() as usize;
-            let mut noise_res: String = "".to_string();
-            // nose part
-            for _i in 0..noise {
-                noise_res.push('o');
-            }
-            assert!(
-                noise <= 64,
-                "noise = {} ; {}",
-                noise,
-                (f64::log2(3. * f64::sqrt(*variance))).floor()
-            );
-
-            let nothing = <Torus as Numeric>::BITS
-                - encoder.nb_bit_padding
-                - encoder.nb_bit_precision
-                - noise;
-            assert!(nothing <= 64, "nothing = {} ", nothing);
-            let mut nothing_res: String = "".to_string();
-            // nth part
-            for _i in 0..nothing {
-                nothing_res.push('o');
-            }
-
-            println!(
-                "{}{}{}{}",
-                padding_res.blue().bold(),
-                message_res.green().bold(),
-                nothing_res.bold(),
-                noise_res.red().bold()
-            );
-        }
-        println!();
+        self.data.pp();
     }
 
     /// Sum all the LWE ciphertexts contained in self into one single ciphertext and output it as a new VectorLWE
@@ -2287,52 +1473,9 @@ impl VectorLWE {
     /// // sum
     /// let ciphertext_sum = ciphertext.sum_with_padding().unwrap();
     /// ```
-    pub fn sum_with_padding(&self) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let nb_bit_padding_consumed: usize =
-            f64::ceil(f64::log2(self.nb_ciphertexts as f64)) as usize;
-        let mut ct = Tensor::from_container(vec![0; self.dimension + 1]);
-        let mut new_var: f64 = 0.;
-        let mut new_o: f64 = 0.;
-        let new_delta: f64 = self.encoders[0].delta * f64::powi(2., nb_bit_padding_consumed as i32);
-        let mut new_precision: usize = self.encoders[0].nb_bit_precision;
-
-        for (ct_in, var_in, enc_in) in izip!(
-            self.ciphertexts
-                .as_tensor()
-                .subtensor_iter(self.dimension + 1),
-            self.variances.iter(),
-            self.encoders.iter()
-        ) {
-            //Find the minimum precision among all the ciphertexts
-            new_precision = usize::min(new_precision, enc_in.nb_bit_precision);
-            //Check same deltas and paddings among all the ciphertexts
-            if !deltas_eq!(self.encoders[0].delta, enc_in.delta) {
-                return Err(DeltaError!(self.encoders[0].delta, enc_in.delta));
-            } else if self.encoders[0].nb_bit_padding != enc_in.nb_bit_padding {
-                return Err(PaddingError!(
-                    self.encoders[0].nb_bit_padding,
-                    enc_in.nb_bit_padding
-                ));
-            }
-            ct.update_with_wrapping_add(&ct_in);
-            new_var = npe::add_ciphertexts(new_var, *var_in);
-            new_o += enc_in.o;
-        }
-        let mut new_encoder: crate::Encoder = crate::Encoder {
-            o: new_o,
-            delta: new_delta,
-            nb_bit_precision: self.encoders[0].nb_bit_precision,
-            nb_bit_padding: self.encoders[0].nb_bit_padding - nb_bit_padding_consumed,
-            round: self.encoders[0].round,
-        };
-        new_encoder.update_precision_from_variance(new_var)?;
-        Ok(VectorLWE {
-            ciphertexts: LweList::from_container(ct.into_container(), LweSize(self.dimension + 1)),
-            variances: vec![new_var],
-            dimension: self.dimension,
-            nb_ciphertexts: 1,
-            encoders: vec![new_encoder],
-        })
+    pub fn sum_with_padding(&self) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.sum_with_padding())?;
+        Ok(VectorLWE{ data })
     }
 
     /// Sum all the LWE ciphertexts contained in self into one single ciphertext and output it as a
@@ -2374,95 +1517,29 @@ impl VectorLWE {
     /// // sum with a new min
     /// let ciphertext_sum = ciphertext.sum_with_new_min(-50.).unwrap();
     /// ```
-    pub fn sum_with_new_min(&self, new_min: f64) -> Result<crate::VectorLWE, CryptoAPIError> {
-        let mut ct = LweList::allocate(0, LweSize(self.dimension + 1), CiphertextCount(1));
+    pub fn sum_with_new_min(&self, new_min: f64) -> PyResult<crate::VectorLWE> {
+        let data = translate_error!(self.data.sum_with_new_min(new_min))?;
+        Ok(VectorLWE{ data })
+    }
+    
+    pub fn save(&self, path: &str) -> PyResult<()> {
+        translate_error!(self.data.save(path))
+    }
 
-        // add the ciphertexts together
-        for ct_in in izip!(self
-            .ciphertexts
-            .as_tensor()
-            .subtensor_iter(self.dimension + 1))
-        {
-            ct.as_mut_tensor().update_with_wrapping_add(&ct_in);
-        }
+    #[staticmethod]
+    pub fn load(path: &str) -> PyResult<VectorLWE> {
+        let data = translate_error!(concrete::VectorLWE::load(path))?;
+        Ok(VectorLWE{ data })
+    }
 
-        // deal with the resulting encoding and correcting terms
-        let mut new_encoder: crate::Encoder = self.encoders[0].clone();
-        new_encoder.o = new_min;
-        let mut sum_min = 0.;
-        for enc_in in self.encoders.iter() {
-            sum_min += enc_in.o;
-        }
-        let correction = new_encoder.encode_outside_interval_operators(sum_min)?;
-        let update = ct
-            .as_tensor()
-            .get_element(self.dimension)
-            .wrapping_add(correction);
-        *ct.as_mut_tensor().get_element_mut(self.dimension) = update;
-
-        // deal with the new variance
-        let new_var = npe::add_several_ciphertexts(&self.variances);
-        new_encoder.update_precision_from_variance(new_var)?;
-
-        // build the output
-        Ok(VectorLWE {
-            ciphertexts: ct,
-            variances: vec![new_var],
-            dimension: self.dimension,
-            nb_ciphertexts: 1,
-            encoders: vec![new_encoder],
-        })
+    pub fn __repr__(&self) -> String {
+        self.data.to_string()
     }
 }
 
-/// Print needed pieces of information about an VectorLWE
-impl fmt::Display for VectorLWE {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let n = 2;
-        let mut to_be_print: String = "".to_string();
+pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<VectorLWE>()?;
 
-        to_be_print += " VectorLWE {\n         -> samples = [";
-
-        if self.ciphertexts.as_tensor().len() <= 2 * n {
-            for elt in self.ciphertexts.as_tensor().iter() {
-                to_be_print = to_be_print + &format!("{}, ", *elt);
-            }
-        } else {
-            for elt in self.ciphertexts.as_tensor().get_sub(0..n).iter() {
-                to_be_print = to_be_print + &format!("{}, ", *elt);
-            }
-            to_be_print += "...";
-
-            for elt in self
-                .ciphertexts
-                .as_tensor()
-                .get_sub(self.ciphertexts.as_tensor().len() - n..)
-                .iter()
-            {
-                to_be_print = to_be_print + &format!("{}, ", *elt);
-            }
-        }
-        to_be_print += "]\n";
-
-        to_be_print += "         -> variances = [";
-        if self.variances.len() <= 2 * n {
-            for elt in self.variances.iter() {
-                to_be_print = to_be_print + &format!("{}, ", elt);
-            }
-        } else {
-            for elt in self.variances[0..n].iter() {
-                to_be_print = to_be_print + &format!("{}, ", elt);
-            }
-            to_be_print += "...";
-            for elt in self.variances[self.variances.len() - n..].iter() {
-                to_be_print = to_be_print + &format!("{}, ", elt);
-            }
-        }
-        to_be_print += "]\n";
-        to_be_print = to_be_print + &format!("         -> dimension = {}\n", self.dimension);
-        to_be_print =
-            to_be_print + &format!("         -> nb of ciphertexts = {}\n", self.nb_ciphertexts);
-        to_be_print += "       }";
-        writeln!(f, "{}", to_be_print)
-    }
+    Ok(())
 }
+

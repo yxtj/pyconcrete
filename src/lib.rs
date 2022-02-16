@@ -26,12 +26,12 @@ pub use lwe_ksk::LWEKSK;
 pub mod lwe_bsk;
 pub use lwe_bsk::LWEBSK;
 
-// pub mod lwe;
-// pub use lwe::LWE;
-// pub mod vector_lwe;
-// pub use vector_lwe::VectorLWE;
-// pub mod vector_rlwe;
-// pub use vector_rlwe::VectorRLWE;
+pub mod lwe;
+pub use lwe::LWE;
+pub mod vector_lwe;
+pub use vector_lwe::VectorLWE;
+pub mod vector_rlwe;
+pub use vector_rlwe::VectorRLWE;
 
 
 #[macro_export]
@@ -60,9 +60,9 @@ fn pyconcrete(py: Python, m: &PyModule) -> PyResult<()> {
     lwe_ksk::register(py, m)?;
     lwe_bsk::register(py, m)?;
     
-    // lwe::register(py, m)?;
-    // vector_lwe::register(py, m)?;
-    // vector_rlwe::register(py, m)?;
+    lwe::register(py, m)?;
+    vector_lwe::register(py, m)?;
+    vector_rlwe::register(py, m)?;
 
     Ok(())
 }
