@@ -1,2 +1,6 @@
 /target
 /src2
+
+/__pycache__
+*.pyd
+*.pyc
