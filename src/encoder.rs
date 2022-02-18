@@ -104,7 +104,7 @@ impl Encoder {
         nb_bit_precision: usize,
         nb_bit_padding: usize,
     ) -> PyResult<Encoder> {
-        let data = concrete::Encoder::new(min, max, nb_bit_precision, nb_bit_padding).unwrap();
+        let data = translate_error!(concrete::Encoder::new(min, max, nb_bit_precision, nb_bit_padding))?;
         Ok(Encoder{ data })
     }
 
@@ -139,8 +139,8 @@ impl Encoder {
         nb_bit_precision: usize,
         nb_bit_padding: usize,
     ) -> PyResult<Encoder> {
-        let data = concrete::Encoder::new_rounding_context(
-            min, max, nb_bit_precision, nb_bit_padding).unwrap();
+        let data = translate_error!(concrete::Encoder::new_rounding_context(
+            min, max, nb_bit_precision, nb_bit_padding))?;
         Ok(Encoder{ data })
     }
 
@@ -199,8 +199,8 @@ impl Encoder {
         nb_bit_precision: usize,
         nb_bit_padding: usize,
     ) -> PyResult<Encoder> {
-        let data = concrete::Encoder::new_centered(
-            center, radius, nb_bit_precision, nb_bit_padding).unwrap();
+        let data = translate_error!(concrete::Encoder::new_centered(
+            center, radius, nb_bit_precision, nb_bit_padding))?;
         Ok(Encoder{ data })
     }
 
@@ -362,8 +362,7 @@ impl Encoder {
         &self,
         nb_bit_padding: usize,
     ) -> PyResult<Encoder> {
-        // translate_error!(self.data.new_square_divided_by_four(nb_bit_padding))
-        let data = self.data.new_square_divided_by_four(nb_bit_padding).unwrap();
+        let data = translate_error!(self.data.new_square_divided_by_four(nb_bit_padding))?;
         Ok(Encoder{ data })
     }
 
@@ -453,7 +452,7 @@ impl Encoder {
 
     #[staticmethod]
     pub fn load(path: &str) -> PyResult<Encoder> {
-        let data = concrete::Encoder::load(path).unwrap();
+        let data = translate_error!(concrete::Encoder::load(path))?;
         Ok(Encoder{ data })
     }
 
