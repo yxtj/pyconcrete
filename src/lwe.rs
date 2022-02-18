@@ -1,7 +1,7 @@
 //! lwe ciphertext module
 use pyo3::prelude::*;
 use pyo3::exceptions::*;
-use pyo3::types::{PyFunction};
+use pyo3::types::{PyFunction, PyAny, PyInt, PyFloat};
 use concrete;
 use concrete::{Torus};
 use super::translate_error;
@@ -14,7 +14,7 @@ use super::translate_error;
 /// * `dimension` - the length the LWE mask
 /// * `encoder` - the encoder of the LWE ciphertext
 #[pyclass]
-// #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LWE {
     // pub ciphertext: crypto::lwe::LweCiphertext<Vec<Torus>>,
     // pub variance: f64,
@@ -74,6 +74,81 @@ impl LWE {
     pub fn set_encoder(&mut self, v: crate::Encoder) {
         self.data.encoder = v.data;
     }
+
+    pub fn __add__(&self, o: &PyAny) -> PyResult<LWE> {
+        if o.is_instance::<PyFloat>().unwrap() {
+            let o = o.extract::<f64>().unwrap();
+            return translate_error!(self.add_constant_dynamic_encoder(o));
+        } else if o.is_instance::<LWE>().unwrap() {
+            let o = o.extract::<LWE>().unwrap();
+            return translate_error!(self.add_with_padding(&o));
+        }
+        Err(PyTypeError::new_err("unsupported type for LWE addition"))
+    }
+
+    pub fn __radd__(&self, o: &PyAny) -> PyResult<LWE> {
+        self.__add__(o)
+    }
+
+    pub fn __iadd__(&mut self, o: &PyAny) -> PyResult<()> {
+        if o.is_instance::<PyFloat>().unwrap() {
+            let o = o.extract::<f64>().unwrap();
+            return translate_error!(self.add_constant_dynamic_encoder_inplace(o));
+        } else if o.is_instance::<LWE>().unwrap() {
+            let o = o.extract::<LWE>().unwrap();
+            return translate_error!(self.add_with_padding_inplace(&o));
+        }
+        Err(PyTypeError::new_err("unsupported type for LWE addition"))
+    }
+
+    pub fn __sub__(&self, o: &PyAny) -> PyResult<LWE> {
+        if o.is_instance::<PyFloat>().unwrap() {
+            let o = o.extract::<f64>().unwrap();
+            return translate_error!(self.add_constant_dynamic_encoder(-o));
+        } else if o.is_instance::<LWE>().unwrap() {
+            let o = o.extract::<LWE>().unwrap();
+            return translate_error!(self.sub_with_padding(&o));
+        }
+        Err(PyTypeError::new_err("unsupported type for LWE addition"))
+    }
+
+    pub fn __isub__(&mut self, o: &PyAny) -> PyResult<()> {
+        if o.is_instance::<PyFloat>().unwrap() {
+            let o = o.extract::<f64>().unwrap();
+            return translate_error!(self.add_constant_dynamic_encoder_inplace(-o));
+        } else if o.is_instance::<LWE>().unwrap() {
+            let o = o.extract::<LWE>().unwrap();
+            return translate_error!(self.sub_with_padding_inplace(&o));
+        }
+        Err(PyTypeError::new_err("unsupported type for LWE addition"))
+    }
+
+    // pub fn __mul__(&self, o: f64) -> PyResult<LWE> {
+
+    //     if o.is_instance::<PyInt>().unwrap() {
+    //         let o = o.extract::<i32>().unwrap();
+    //         return translate_error!(self.mul_constant_static_encoder(o));
+    //     } else if o.is_instance::<PyFloat>().unwrap() {
+    //         let o = o.extract::<f64>().unwrap();
+    //         return translate_error!(self.mul_constant_with_padding(o, max_constant: f64, nb_bit_padding: usize));
+    //     }
+    //     Err(PyTypeError::new_err("unsupported type for LWE multiplication"))
+    // }
+
+    // pub fn __rmul__(&self, o: f64) -> PyResult<LWE> {
+    //     self.__mul__(o)
+    // }
+
+    // pub fn __imul__(&mut self, o: f64) -> PyResult<()> {
+    //     if o.is_instance::<PyInt>().unwrap() {
+    //         let o = o.extract::<i32>().unwrap();
+    //         return translate_error!(self.mul_constant_static_encoder_inplace(o));
+    //     } else if o.is_instance::<PyFloat>().unwrap() {
+    //         let o = o.extract::<f64>().unwrap();
+    //         return translate_error!(self.mul_constant_with_padding_inplace(o, max_constant: f64, nb_bit_padding: usize))
+    //     }
+    //     Err(PyTypeError::new_err("unsupported type for LWE multiplication"))
+    // }
 
     /// Instantiate a new LWE filled with zeros from a dimension
     ///
