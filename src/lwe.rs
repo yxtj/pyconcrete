@@ -132,8 +132,8 @@ impl LWE {
             translate_error!(self.mul_constant_static_encoder(o as i32))
         } else {
             let max = o.abs().ceil();
-            let nb =  (o.abs().log2().round() as usize).min(self.data.encoder.nb_bit_padding);
-            translate_error!(self.mul_constant_with_padding(o, max, nb))
+            let nb_prec = self.data.encoder.nb_bit_precision.min(self.data.encoder.nb_bit_padding);
+            translate_error!(self.mul_constant_with_padding(o, max, nb_prec))
         }
     }
 
@@ -146,8 +146,8 @@ impl LWE {
             translate_error!(self.mul_constant_static_encoder_inplace(o as i32))
         } else {
             let max = o.abs().ceil();
-            let nb =  (o.abs().log2().round() as usize).min(self.data.encoder.nb_bit_padding);
-            translate_error!(self.mul_constant_with_padding_inplace(o, max, nb))
+            let nb_prec = self.data.encoder.nb_bit_precision.min(self.data.encoder.nb_bit_padding);
+            translate_error!(self.mul_constant_with_padding_inplace(o, max, nb_prec))
         }
     }
 
