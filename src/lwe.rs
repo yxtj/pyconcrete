@@ -4,7 +4,10 @@ use pyo3::exceptions::*;
 use pyo3::types::{PyFunction, PyAny}; //, PyInt, PyFloat};
 use concrete;
 use concrete::{Torus};
+use concrete_core::math::tensor::{AsRefSlice, AsRefTensor};
+
 use super::{translate_error, helper_is_int};
+
 
 /// Structure containing a single LWE ciphertext.
 ///
@@ -120,6 +123,10 @@ impl LWE {
         }
     }
 
+    pub fn __neg__(&self) -> PyResult<LWE> {
+        translate_error!(self.opposite())
+    }
+
     pub fn __mul__(&self, o: f64) -> PyResult<LWE> {
         if helper_is_int(o) {
             translate_error!(self.mul_constant_static_encoder(o as i32))
@@ -142,6 +149,10 @@ impl LWE {
             let nb =  (o.abs().log2().round() as usize).min(self.data.encoder.nb_bit_padding);
             translate_error!(self.mul_constant_with_padding_inplace(o, max, nb))
         }
+    }
+
+    pub fn get_ciphertext(&self) -> Vec<Torus> {
+        self.data.ciphertext.as_tensor().as_slice().to_vec()
     }
 
     /// Instantiate a new LWE filled with zeros from a dimension
