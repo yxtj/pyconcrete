@@ -44,6 +44,13 @@ macro_rules! translate_error {
     };
 }
 
+pub(crate) fn helper_is_int(value: f64) -> bool {
+    let ivalue = value as i32;
+    let remainder = value - ivalue as f64;
+    return remainder == 0.0;
+}
+
+
 #[pymodule]
 fn pyconcrete(py: Python, m: &PyModule) -> PyResult<()> {
     // m.add_wrapped(wrap_pyfunction!(encode_test))?;

@@ -1,10 +1,10 @@
 //! lwe ciphertext module
 use pyo3::prelude::*;
 use pyo3::exceptions::*;
-use pyo3::types::{PyFunction, PyAny, PyInt, PyFloat};
+use pyo3::types::{PyFunction, PyAny}; //, PyInt, PyFloat};
 use concrete;
 use concrete::{Torus};
-use super::translate_error;
+use super::{translate_error, helper_is_int};
 
 /// Structure containing a single LWE ciphertext.
 ///
@@ -76,14 +76,14 @@ impl LWE {
     }
 
     pub fn __add__(&self, o: &PyAny) -> PyResult<LWE> {
-        if o.is_instance::<PyFloat>().unwrap() {
-            let o = o.extract::<f64>().unwrap();
+        if let Some(o) = o.extract::<f64>().ok() {
+            // works for both PyInt and PyFloat
             return translate_error!(self.add_constant_dynamic_encoder(o));
-        } else if o.is_instance::<LWE>().unwrap() {
-            let o = o.extract::<LWE>().unwrap();
+        } else if let Some(o) = o.extract::<LWE>().ok() {
             return translate_error!(self.add_with_padding(&o));
+        } else {
+            Err(PyTypeError::new_err("unsupported type for LWE addition"))
         }
-        Err(PyTypeError::new_err("unsupported type for LWE addition"))
     }
 
     pub fn __radd__(&self, o: &PyAny) -> PyResult<LWE> {
@@ -91,64 +91,58 @@ impl LWE {
     }
 
     pub fn __iadd__(&mut self, o: &PyAny) -> PyResult<()> {
-        if o.is_instance::<PyFloat>().unwrap() {
-            let o = o.extract::<f64>().unwrap();
+        if let Some(o) = o.extract::<f64>().ok() {
             return translate_error!(self.add_constant_dynamic_encoder_inplace(o));
-        } else if o.is_instance::<LWE>().unwrap() {
-            let o = o.extract::<LWE>().unwrap();
+        } else if let Some(o) = o.extract::<LWE>().ok() {
             return translate_error!(self.add_with_padding_inplace(&o));
+        } else {
+            Err(PyTypeError::new_err("unsupported type for LWE addition"))
         }
-        Err(PyTypeError::new_err("unsupported type for LWE addition"))
     }
 
     pub fn __sub__(&self, o: &PyAny) -> PyResult<LWE> {
-        if o.is_instance::<PyFloat>().unwrap() {
-            let o = o.extract::<f64>().unwrap();
+        if let Some(o) = o.extract::<f64>().ok() {
             return translate_error!(self.add_constant_dynamic_encoder(-o));
-        } else if o.is_instance::<LWE>().unwrap() {
-            let o = o.extract::<LWE>().unwrap();
+        } else if let Some(o) = o.extract::<LWE>().ok() {
             return translate_error!(self.sub_with_padding(&o));
+        } else {
+            Err(PyTypeError::new_err("unsupported type for LWE subtraction"))
         }
-        Err(PyTypeError::new_err("unsupported type for LWE addition"))
     }
 
     pub fn __isub__(&mut self, o: &PyAny) -> PyResult<()> {
-        if o.is_instance::<PyFloat>().unwrap() {
-            let o = o.extract::<f64>().unwrap();
+        if let Some(o) = o.extract::<f64>().ok() {
             return translate_error!(self.add_constant_dynamic_encoder_inplace(-o));
-        } else if o.is_instance::<LWE>().unwrap() {
-            let o = o.extract::<LWE>().unwrap();
+        } else if let Some(o) = o.extract::<LWE>().ok() {
             return translate_error!(self.sub_with_padding_inplace(&o));
+        } else {
+            Err(PyTypeError::new_err("unsupported type for LWE subtraction"))
         }
-        Err(PyTypeError::new_err("unsupported type for LWE addition"))
     }
 
-    // pub fn __mul__(&self, o: f64) -> PyResult<LWE> {
+    pub fn __mul__(&self, o: f64) -> PyResult<LWE> {
+        if helper_is_int(o) {
+            translate_error!(self.mul_constant_static_encoder(o as i32))
+        } else {
+            let max = o.abs().ceil();
+            let nb =  (o.abs().log2().round() as usize).min(self.data.encoder.nb_bit_padding);
+            translate_error!(self.mul_constant_with_padding(o, max, nb))
+        }
+    }
 
-    //     if o.is_instance::<PyInt>().unwrap() {
-    //         let o = o.extract::<i32>().unwrap();
-    //         return translate_error!(self.mul_constant_static_encoder(o));
-    //     } else if o.is_instance::<PyFloat>().unwrap() {
-    //         let o = o.extract::<f64>().unwrap();
-    //         return translate_error!(self.mul_constant_with_padding(o, max_constant: f64, nb_bit_padding: usize));
-    //     }
-    //     Err(PyTypeError::new_err("unsupported type for LWE multiplication"))
-    // }
+    pub fn __rmul__(&self, o: f64) -> PyResult<LWE> {
+        self.__mul__(o)
+    }
 
-    // pub fn __rmul__(&self, o: f64) -> PyResult<LWE> {
-    //     self.__mul__(o)
-    // }
-
-    // pub fn __imul__(&mut self, o: f64) -> PyResult<()> {
-    //     if o.is_instance::<PyInt>().unwrap() {
-    //         let o = o.extract::<i32>().unwrap();
-    //         return translate_error!(self.mul_constant_static_encoder_inplace(o));
-    //     } else if o.is_instance::<PyFloat>().unwrap() {
-    //         let o = o.extract::<f64>().unwrap();
-    //         return translate_error!(self.mul_constant_with_padding_inplace(o, max_constant: f64, nb_bit_padding: usize))
-    //     }
-    //     Err(PyTypeError::new_err("unsupported type for LWE multiplication"))
-    // }
+    pub fn __imul__(&mut self, o: f64) -> PyResult<()> {
+        if helper_is_int(o) {
+            translate_error!(self.mul_constant_static_encoder_inplace(o as i32))
+        } else {
+            let max = o.abs().ceil();
+            let nb =  (o.abs().log2().round() as usize).min(self.data.encoder.nb_bit_padding);
+            translate_error!(self.mul_constant_with_padding_inplace(o, max, nb))
+        }
+    }
 
     /// Instantiate a new LWE filled with zeros from a dimension
     ///
