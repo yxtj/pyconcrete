@@ -1,9 +1,17 @@
+# folders
 /target
 /src2
 
+# rust project
+Carogo.lock
+
+
+# python
 /__pycache__
 *.pyd
 *.pyc
 
+
+# binary
 *.so
 *.dll
