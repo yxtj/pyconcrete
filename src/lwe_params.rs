@@ -1,8 +1,7 @@
 use pyo3::prelude::*;
+use pyo3::exceptions::*;
 use concrete;
-
-// use concrete::LWEParams;
-// use concrete::LWE128_630;
+use super::translate_error;
 
 #[pyclass]
 #[derive(Debug, Clone, PartialEq)]
@@ -211,7 +210,7 @@ impl LWEParams {
 
     #[staticmethod]
     pub fn load(path: &str) -> PyResult<LWEParams> {
-        let data = concrete::lwe_params::LWEParams::load(path).unwrap();
+        let data = translate_error!(concrete::LWEParams::load(path))?;
         Ok(LWEParams{ data })
     }
 

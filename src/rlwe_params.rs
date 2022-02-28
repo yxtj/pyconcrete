@@ -199,7 +199,7 @@ impl RLWEParams {
 
     #[staticmethod]
     pub fn load(path: &str) -> PyResult<RLWEParams> {
-        let data = concrete::RLWEParams::load(path).unwrap();
+        let data = translate_error!(concrete::RLWEParams::load(path))?;
         Ok(RLWEParams{ data })
     }
 
